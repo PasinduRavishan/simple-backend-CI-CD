@@ -1,20 +1,29 @@
+import { jest } from '@jest/globals';
 import request from 'supertest';
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import app from '../app.js';
 import Book from '../models/book.model.js';
 
+// Increase Jest timeout for this file (30s)
+jest.setTimeout(30000);
+
 let mongoServer;
 
 beforeAll(async () => {
+  // Give enough time for binary download on first run
   mongoServer = await MongoMemoryServer.create();
   const uri = mongoServer.getUri();
-  await mongoose.connect(uri);
-});
+  await mongoose.connect(uri, { /* defaults */ });
+}, 30000);
 
 afterAll(async () => {
-  await mongoose.disconnect();
-  await mongoServer.stop();
+  if (mongoose.connection.readyState === 1) {
+    await mongoose.disconnect();
+  }
+  if (mongoServer) {
+    await mongoServer.stop();
+  }
 });
 
 afterEach(async () => {
