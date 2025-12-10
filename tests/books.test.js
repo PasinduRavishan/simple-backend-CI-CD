@@ -98,4 +98,124 @@ describe('Books API (ESM)', () => {
     const res = await request(app).patch(`/books/${book._id}`).send({ foo: 'bar' });
     expect(res.statusCode).toBe(400);
   });
+
+  test('POST /books with all fields -> 201', async () => {
+    const res = await request(app)
+      .post('/books')
+      .send({
+        title: 'Test Book',
+        author: 'Test Author',
+        year: 2023,
+        summary: 'This is a test book summary'
+      });
+    expect(res.statusCode).toBe(201);
+    expect(res.body.title).toBe('Test Book');
+    expect(res.body.author).toBe('Test Author');
+    expect(res.body.year).toBe(2023);
+    expect(res.body.summary).toBe('This is a test book summary');
+    expect(res.body).toHaveProperty('createdAt');
+    expect(res.body).toHaveProperty('updatedAt');
+  });
+
+  test('GET /books returns books sorted by createdAt (newest first)', async () => {
+    await Book.create({ title: 'First', author: 'A' });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await Book.create({ title: 'Second', author: 'B' });
+    await new Promise(resolve => setTimeout(resolve, 10));
+    await Book.create({ title: 'Third', author: 'C' });
+
+    const res = await request(app).get('/books');
+    expect(res.statusCode).toBe(200);
+    expect(res.body.length).toBe(3);
+    expect(res.body[0].title).toBe('Third');
+    expect(res.body[2].title).toBe('First');
+  });
+
+  test('PUT /books/:id with missing author -> 400', async () => {
+    const book = await Book.create({ title: 'Old', author: 'X' });
+    const res = await request(app)
+      .put(`/books/${book._id}`)
+      .send({ title: 'New Title Only' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toContain('author');
+  });
+
+  test('PUT /books/:id with missing title -> 400', async () => {
+    const book = await Book.create({ title: 'Old', author: 'X' });
+    const res = await request(app)
+      .put(`/books/${book._id}`)
+      .send({ author: 'New Author Only' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toContain('title');
+  });
+
+  test('PATCH /books/:id with invalid ID format -> 404', async () => {
+    const res = await request(app)
+      .patch('/books/invalid-id-format')
+      .send({ title: 'Updated' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  test('DELETE /books/:id with invalid ID format -> 404', async () => {
+    const res = await request(app).delete('/books/invalid-id-format');
+    expect(res.statusCode).toBe(404);
+  });
+
+  test('PUT /books/:id with invalid ID format -> 404', async () => {
+    const res = await request(app)
+      .put('/books/invalid-id-format')
+      .send({ title: 'Test', author: 'Author' });
+    expect(res.statusCode).toBe(404);
+  });
+
+  test('PATCH /books/:id updates only provided fields', async () => {
+    const book = await Book.create({
+      title: 'Original',
+      author: 'Original Author',
+      year: 2020
+    });
+    const res = await request(app)
+      .patch(`/books/${book._id}`)
+      .send({ year: 2024 });
+    expect(res.statusCode).toBe(200);
+    expect(res.body.title).toBe('Original');
+    expect(res.body.author).toBe('Original Author');
+    expect(res.body.year).toBe(2024);
+  });
+
+  test('POST /books with negative year -> 201', async () => {
+    const res = await request(app)
+      .post('/books')
+      .send({ title: 'Ancient Text', author: 'Unknown', year: -300 });
+    expect(res.statusCode).toBe(201);
+    expect(res.body.year).toBe(-300);
+  });
+
+  test('GET /books/:id with non-existent ID -> 404', async () => {
+    const res = await request(app).get('/books/507f1f77bcf86cd799439011');
+    expect(res.statusCode).toBe(404);
+    expect(res.body.error).toContain('not found');
+  });
+
+  test('POST /books with missing author -> 400', async () => {
+    const res = await request(app)
+      .post('/books')
+      .send({ title: 'Title Only' });
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toContain('author');
+  });
+
+  test('404 for unknown routes', async () => {
+    const res = await request(app).get('/unknown-route');
+    expect(res.statusCode).toBe(404);
+    expect(res.body.error).toBe('Not Found');
+  });
+
+  test('PATCH /books/:id with empty body -> 400', async () => {
+    const book = await Book.create({ title: 'Test', author: 'Author' });
+    const res = await request(app)
+      .patch(`/books/${book._id}`)
+      .send({});
+    expect(res.statusCode).toBe(400);
+  });
 });
