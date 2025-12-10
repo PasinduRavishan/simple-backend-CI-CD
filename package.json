@@ -29,7 +29,7 @@
   },
   "config": {
     "mongodbMemoryServer": {
-      "version": "6.0.12",
+      "version": "7.0.0",
       "downloadDir": "./mongodb-binaries"
     }
   }
