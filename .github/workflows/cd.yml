@@ -1,0 +1,84 @@
+name: CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  deploy:
+    name: Deploy to GCP
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.GCP_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.GCP_VM_IP }} >> ~/.ssh/known_hosts
+      
+      - name: Deploy to GCP VM
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.GCP_VM_USER }}@${{ secrets.GCP_VM_IP }} << 'EOF'
+            set -e
+            
+            echo "🚀 Starting deployment..."
+            
+            # Navigate to app directory
+            cd ~/apps/simple-backend-CI-CD
+            
+            # Pull latest changes
+            echo "📥 Pulling latest code..."
+            git pull origin main
+            
+            # Install/update dependencies
+            echo "📦 Installing dependencies..."
+            npm ci --omit=dev
+            
+            # Update environment variables
+            echo "🔧 Updating environment variables..."
+            cat > .env << ENVEOF
+          PORT=${{ secrets.PORT }}
+          MONGO_URI=${{ secrets.MONGO_URI }}
+          NODE_ENV=production
+          ENVEOF
+            
+            # Restart PM2 process
+            echo "🔄 Restarting application..."
+            pm2 restart backend-api
+            
+            # Wait for app to start
+            sleep 3
+            
+            # Check PM2 status
+            echo "✅ Checking application status..."
+            pm2 status backend-api
+            
+            echo "🎉 Deployment completed successfully!"
+          EOF
+      
+      - name: Health Check
+        run: |
+          echo "🏥 Running health check..."
+          sleep 5
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://${{ secrets.GCP_VM_IP }}:${{ secrets.PORT }}/books)
+          if [ $RESPONSE -eq 200 ]; then
+            echo "✅ Health check passed! Server is responding."
+          else
+            echo "❌ Health check failed! Server returned status code: $RESPONSE"
+            exit 1
+          fi
+      
+      - name: Notify Deployment Status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Deployment successful!"
+            echo "🌐 Application URL: http://${{ secrets.GCP_VM_IP }}:${{ secrets.PORT }}/books"
+          else
+            echo "❌ Deployment failed!"
+          fi
