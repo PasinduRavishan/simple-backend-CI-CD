@@ -32,3 +32,9 @@ Thumbs.db
 pids/
 *.pid
 *.seed
+
+# MongoDB binaries for testing
+mongodb-binaries/
+
+# Test coverage
+coverage/

@@ -26,5 +26,11 @@
   "jest": {
     "testEnvironment": "node",
     "transform": {}
+  },
+  "config": {
+    "mongodbMemoryServer": {
+      "version": "6.0.12",
+      "downloadDir": "./mongodb-binaries"
+    }
   }
 }

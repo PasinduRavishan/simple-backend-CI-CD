@@ -26,6 +26,15 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
       
+      - name: Install system dependencies for MongoDB Memory Server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg software-properties-common
+          wget -qO - https://www.mongodb.org/static/pgp/server-6.0.asc | sudo apt-key add -
+          echo "deb [ arch=amd64,arm64 ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/6.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-6.0.list
+          sudo apt-get update
+          sudo apt-get install -y libcurl4 openssl liblzma5
+      
       - name: Install dependencies
         run: npm ci
       
@@ -33,6 +42,8 @@ jobs:
         run: npm test
         env:
           NODE_ENV: test
+          MONGOMS_DOWNLOAD_URL: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-6.0.12.tgz
+          MONGOMS_VERSION: 6.0.12
       
       - name: Generate coverage report
         run: npm test -- --coverage
