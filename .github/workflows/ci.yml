@@ -2,9 +2,9 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [ feature/mysql ]
+    branches: [ main, feature/sql ]
   pull_request:
-    branches: [ feature/mysql ]
+    branches: [ main, feature/sql ]
   workflow_dispatch:  # Manual trigger
 
 jobs:
