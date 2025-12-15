@@ -1,36 +1,29 @@
 {
   "name": "books-api-esm",
   "version": "1.0.0",
-  "description": "",
+  "description": "RESTful Books API with MySQL and Repository Pattern",
   "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon --watch . --exec \"node server.js\"",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest --runInBand --detectOpenHandles",
+    "test": "NODE_ENV=test NODE_OPTIONS=--experimental-vm-modules jest --runInBand --detectOpenHandles",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "dotenv": "^16.0.0",
     "express": "^4.18.2",
-    "mongoose": "^7.0.0"
+    "mysql2": "^3.11.0"
   },
   "devDependencies": {
     "eslint": "^8.56.0",
     "jest": "^29.6.0",
-    "mongodb-memory-server": "^8.12.0",
     "nodemon": "^3.1.11",
     "supertest": "^6.3.3"
   },
   "jest": {
     "testEnvironment": "node",
     "transform": {}
-  },
-  "config": {
-    "mongodbMemoryServer": {
-      "version": "6.0.9",
-      "downloadDir": "./mongodb-binaries"
-    }
   }
 }

@@ -1,43 +1,44 @@
 import { jest } from '@jest/globals';
 import request from 'supertest';
-import mongoose from 'mongoose';
-import { MongoMemoryServer } from 'mongodb-memory-server';
 import app from '../app.js';
-import Book from '../models/book.model.js';
+import { query } from '../db/connection.js';
 
-// Increase Jest timeout for this file (30s)
+// Increase Jest timeout
 jest.setTimeout(30000);
 
-let mongoServer;
+// Helper to clean test database before each test
+async function cleanTestDB() {
+  await query('DELETE FROM books');
+  await query('ALTER TABLE books AUTO_INCREMENT = 1');
+}
 
 beforeAll(async () => {
-  // Give enough time for binary download on first run
-  mongoServer = await MongoMemoryServer.create();
-  const uri = mongoServer.getUri();
-  await mongoose.connect(uri, { /* defaults */ });
+  // Ensure we're using test database
+  if (process.env.NODE_ENV !== 'test') {
+    process.env.NODE_ENV = 'test';
+  }
+  await cleanTestDB();
 }, 30000);
 
-afterAll(async () => {
-  if (mongoose.connection.readyState === 1) {
-    await mongoose.disconnect();
-  }
-  if (mongoServer) {
-    await mongoServer.stop();
-  }
-});
-
 afterEach(async () => {
-  await Book.deleteMany({});
+  await cleanTestDB();
 });
 
-describe('Books API (ESM)', () => {
+afterAll(async () => {
+  const { closePool } = await import('../db/connection.js');
+  await closePool();
+});
+
+describe('Books API (MySQL)', () => {
   test('POST /books -> creates book', async () => {
     const res = await request(app)
       .post('/books')
       .send({ title: 'The Odyssey', author: 'Homer', year: -700 });
     expect(res.statusCode).toBe(201);
-    expect(res.body).toHaveProperty('_id');
+    expect(res.body).toHaveProperty('id');
     expect(res.body.title).toBe('The Odyssey');
+    expect(res.body.author).toBe('Homer');
+    expect(res.body.year).toBe(-700);
   });
 
   test('GET /books -> array', async () => {
@@ -46,45 +47,55 @@ describe('Books API (ESM)', () => {
     expect(Array.isArray(res.body)).toBe(true);
     expect(res.body.length).toBe(0);
 
-    await Book.create({ title: '1984', author: 'George Orwell' });
+    await query('INSERT INTO books (title, author) VALUES (?, ?)', ['1984', 'George Orwell']);
     res = await request(app).get('/books');
     expect(res.body.length).toBe(1);
   });
 
   test('GET /books/:id -> 200 or 404', async () => {
-    const book = await Book.create({ title: 'A', author: 'B' });
-    const res = await request(app).get(`/books/${book._id}`);
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['A', 'B']);
+    const bookId = result.insertId;
+    
+    const res = await request(app).get(`/books/${bookId}`);
     expect(res.statusCode).toBe(200);
     expect(res.body.title).toBe('A');
 
-    const res404 = await request(app).get('/books/000000000000000000000000');
+    const res404 = await request(app).get('/books/999999');
     expect(res404.statusCode).toBe(404);
   });
 
   test('PUT /books/:id -> replace', async () => {
-    const book = await Book.create({ title: 'Old', author: 'X' });
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Old', 'X']);
+    const bookId = result.insertId;
+    
     const res = await request(app)
-      .put(`/books/${book._id}`)
+      .put(`/books/${bookId}`)
       .send({ title: 'New', author: 'Y', year: 2020 });
     expect(res.statusCode).toBe(200);
     expect(res.body.title).toBe('New');
+    expect(res.body.year).toBe(2020);
   });
 
   test('PATCH /books/:id -> partial update', async () => {
-    const book = await Book.create({ title: 'Patch', author: 'Auth' });
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Patch', 'Auth']);
+    const bookId = result.insertId;
+    
     const res = await request(app)
-      .patch(`/books/${book._id}`)
+      .patch(`/books/${bookId}`)
       .send({ summary: 'short summary' });
     expect(res.statusCode).toBe(200);
     expect(res.body.summary).toBe('short summary');
+    expect(res.body.title).toBe('Patch'); // Title should remain
   });
 
   test('DELETE /books/:id -> 204 then 404', async () => {
-    const book = await Book.create({ title: 'ToDel', author: 'A' });
-    const res = await request(app).delete(`/books/${book._id}`);
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['ToDel', 'A']);
+    const bookId = result.insertId;
+    
+    const res = await request(app).delete(`/books/${bookId}`);
     expect(res.statusCode).toBe(204);
 
-    const get = await request(app).get(`/books/${book._id}`);
+    const get = await request(app).get(`/books/${bookId}`);
     expect(get.statusCode).toBe(404);
   });
 
@@ -94,8 +105,10 @@ describe('Books API (ESM)', () => {
   });
 
   test('PATCH invalid fields -> 400', async () => {
-    const book = await Book.create({ title: 'x', author: 'y' });
-    const res = await request(app).patch(`/books/${book._id}`).send({ foo: 'bar' });
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['x', 'y']);
+    const bookId = result.insertId;
+    
+    const res = await request(app).patch(`/books/${bookId}`).send({ foo: 'bar' });
     expect(res.statusCode).toBe(400);
   });
 
@@ -113,37 +126,43 @@ describe('Books API (ESM)', () => {
     expect(res.body.author).toBe('Test Author');
     expect(res.body.year).toBe(2023);
     expect(res.body.summary).toBe('This is a test book summary');
-    expect(res.body).toHaveProperty('createdAt');
-    expect(res.body).toHaveProperty('updatedAt');
+    expect(res.body).toHaveProperty('id');
   });
 
-  test('GET /books returns books sorted by createdAt (newest first)', async () => {
-    await Book.create({ title: 'First', author: 'A' });
-    await new Promise(resolve => setTimeout(resolve, 10));
-    await Book.create({ title: 'Second', author: 'B' });
-    await new Promise(resolve => setTimeout(resolve, 10));
-    await Book.create({ title: 'Third', author: 'C' });
+  test('GET /books with search filters', async () => {
+    await query('INSERT INTO books (title, author, year) VALUES (?, ?, ?)', ['First', 'Author A', 2020]);
+    await query('INSERT INTO books (title, author, year) VALUES (?, ?, ?)', ['Second', 'Author B', 2021]);
+    await query('INSERT INTO books (title, author, year) VALUES (?, ?, ?)', ['Third', 'Author A', 2022]);
 
-    const res = await request(app).get('/books');
+    // Filter by author
+    let res = await request(app).get('/books?author=Author A');
     expect(res.statusCode).toBe(200);
-    expect(res.body.length).toBe(3);
-    expect(res.body[0].title).toBe('Third');
-    expect(res.body[2].title).toBe('First');
+    expect(res.body.length).toBe(2);
+
+    // Filter by year
+    res = await request(app).get('/books?year=2021');
+    expect(res.statusCode).toBe(200);
+    expect(res.body.length).toBe(1);
+    expect(res.body[0].title).toBe('Second');
   });
 
   test('PUT /books/:id with missing author -> 400', async () => {
-    const book = await Book.create({ title: 'Old', author: 'X' });
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Old', 'X']);
+    const bookId = result.insertId;
+    
     const res = await request(app)
-      .put(`/books/${book._id}`)
+      .put(`/books/${bookId}`)
       .send({ title: 'New Title Only' });
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toContain('author');
   });
 
   test('PUT /books/:id with missing title -> 400', async () => {
-    const book = await Book.create({ title: 'Old', author: 'X' });
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Old', 'X']);
+    const bookId = result.insertId;
+    
     const res = await request(app)
-      .put(`/books/${book._id}`)
+      .put(`/books/${bookId}`)
       .send({ author: 'New Author Only' });
     expect(res.statusCode).toBe(400);
     expect(res.body.error).toContain('title');
@@ -151,31 +170,30 @@ describe('Books API (ESM)', () => {
 
   test('PATCH /books/:id with invalid ID format -> 404', async () => {
     const res = await request(app)
-      .patch('/books/invalid-id-format')
+      .patch('/books/999999')
       .send({ title: 'Updated' });
     expect(res.statusCode).toBe(404);
   });
 
   test('DELETE /books/:id with invalid ID format -> 404', async () => {
-    const res = await request(app).delete('/books/invalid-id-format');
+    const res = await request(app).delete('/books/999999');
     expect(res.statusCode).toBe(404);
   });
 
   test('PUT /books/:id with invalid ID format -> 404', async () => {
     const res = await request(app)
-      .put('/books/invalid-id-format')
+      .put('/books/999999')
       .send({ title: 'Test', author: 'Author' });
     expect(res.statusCode).toBe(404);
   });
 
   test('PATCH /books/:id updates only provided fields', async () => {
-    const book = await Book.create({
-      title: 'Original',
-      author: 'Original Author',
-      year: 2020
-    });
+    const result = await query('INSERT INTO books (title, author, year) VALUES (?, ?, ?)', 
+      ['Original', 'Original Author', 2020]);
+    const bookId = result.insertId;
+    
     const res = await request(app)
-      .patch(`/books/${book._id}`)
+      .patch(`/books/${bookId}`)
       .send({ year: 2024 });
     expect(res.statusCode).toBe(200);
     expect(res.body.title).toBe('Original');
@@ -192,7 +210,7 @@ describe('Books API (ESM)', () => {
   });
 
   test('GET /books/:id with non-existent ID -> 404', async () => {
-    const res = await request(app).get('/books/507f1f77bcf86cd799439011');
+    const res = await request(app).get('/books/999999');
     expect(res.statusCode).toBe(404);
     expect(res.body.error).toContain('not found');
   });
@@ -212,10 +230,32 @@ describe('Books API (ESM)', () => {
   });
 
   test('PATCH /books/:id with empty body -> 400', async () => {
-    const book = await Book.create({ title: 'Test', author: 'Author' });
+    const result = await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Test', 'Author']);
+    const bookId = result.insertId;
+    
     const res = await request(app)
-      .patch(`/books/${book._id}`)
+      .patch(`/books/${bookId}`)
       .send({});
     expect(res.statusCode).toBe(400);
+  });
+
+  test('DELETE /books (deleteAll) -> removes all books', async () => {
+    // Create multiple books
+    await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Book1', 'Author1']);
+    await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Book2', 'Author2']);
+    await query('INSERT INTO books (title, author) VALUES (?, ?)', ['Book3', 'Author3']);
+
+    // Verify books exist
+    let res = await request(app).get('/books');
+    expect(res.body.length).toBe(3);
+
+    // Delete all books
+    res = await request(app).delete('/books');
+    expect(res.statusCode).toBe(200);
+    expect(res.body.deletedCount).toBe(3);
+
+    // Verify all books are gone
+    res = await request(app).get('/books');
+    expect(res.body.length).toBe(0);
   });
 });

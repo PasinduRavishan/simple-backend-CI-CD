@@ -1,13 +1,12 @@
 import 'dotenv/config';
 import app from './app.js';
-import { connectDB } from './config/db.js';
+import { testConnection } from './db/connection.js';
 
 const PORT = process.env.PORT || 4000;
-const MONGO_URI = process.env.MONGO_URI;
 
 (async () => {
   try {
-    await connectDB(MONGO_URI);
+    await testConnection();
     app.listen(PORT, () => {
       console.log(`Server listening at http://localhost:${PORT}`);
     });

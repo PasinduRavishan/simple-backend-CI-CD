@@ -2,9 +2,9 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [ main ]
+    branches: [ feature/mysql ]
   pull_request:
-    branches: [ main ]
+    branches: [ feature/mysql ]
   workflow_dispatch:  # Manual trigger
 
 jobs:
@@ -16,6 +16,16 @@ jobs:
       matrix:
         node-version: [18.x, 20.x]
     
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: books_db_test
+        ports:
+          - 3306:3306
+        options: --health-cmd="mysqladmin ping" --health-interval=10s --health-timeout=5s --health-retries=3
+    
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -26,20 +36,33 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
       
-      - name: Install system dependencies for MongoDB Memory Server
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libcurl4 openssl liblzma5
-      
       - name: Install dependencies
         run: npm ci
+      
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in {1..30}; do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -ptest_password --silent; then
+              echo "MySQL is ready!"
+              break
+            fi
+            echo "Waiting for MySQL..."
+            sleep 2
+          done
+      
+      - name: Setup test database schema
+        run: mysql -h 127.0.0.1 -P 3306 -uroot -ptest_password books_db_test < db/schema.sql
       
       - name: Run tests with coverage
         run: npm test -- --coverage
         env:
           NODE_ENV: test
-          MONGOMS_DOWNLOAD_URL: https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2204-6.0.9.tgz
-          MONGOMS_VERSION: 6.0.9
+          DB_HOST: 127.0.0.1
+          DB_PORT: 3306
+          DB_USER: root
+          DB_PASSWORD: test_password
+          DB_NAME: books_db_test
+          DB_TEST_NAME: books_db_test
   
   lint:
     name: Code Quality Check
